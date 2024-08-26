@@ -57,25 +57,68 @@ def add_subtask():
 # Function to refresh the assignments list
 def refresh_assignments():
     listbox_assignments.delete(0, tk.END)
-    for row in c.execute("SELECT * FROM assignments"):
+    for row in c.execute("SELECT * FROM assignments WHERE status != 'Completed'"):
         listbox_assignments.insert(tk.END, f"ID: {row[0]} | Module: {row[1]} | Title: {row[2]} | Due Date: {row[3]} | Status: {row[5]}")
 
 # Function to refresh the subtasks list
-def refresh_subtasks(assignment_id):
+def refresh_subtasks(assignment_id=None):
     listbox_subtasks.delete(0, tk.END)
-    for row in c.execute("SELECT * FROM subtasks WHERE assignment_id = ?", (assignment_id,)):
+    query = "SELECT * FROM subtasks WHERE status != 'Completed'"
+    params = ()
+    if assignment_id:
+        query += " AND assignment_id = ?"
+        params = (assignment_id,)
+    for row in c.execute(query, params):
         listbox_subtasks.insert(tk.END, f"ID: {row[0]} | Title: {row[2]} | Due Date: {row[3]} | Status: {row[4]}")
 
-# Function to mark a task or assignment as completed
-def mark_as_completed(item_id, item_type):
+# Function to change the status of a task or assignment
+def change_status(item_id, item_type, new_status):
     if item_type == 'assignment':
-        c.execute("UPDATE assignments SET status = 'Completed' WHERE id = ?", (item_id,))
+        c.execute("UPDATE assignments SET status = ? WHERE id = ?", (new_status, item_id))
     elif item_type == 'subtask':
-        c.execute("UPDATE subtasks SET status = 'Completed' WHERE id = ?", (item_id,))
+        c.execute("UPDATE subtasks SET status = ? WHERE id = ?", (new_status, item_id))
     conn.commit()
     refresh_assignments()
     refresh_subtasks(item_id if item_type == 'assignment' else None)
-    messagebox.showinfo("Task Completed", "The task has been marked as completed.")
+    messagebox.showinfo("Status Updated", f"The status has been updated to {new_status}.")
+
+# Function to mark a task or assignment as completed
+def mark_as_completed():
+    selected_assignment = listbox_assignments.curselection()
+    selected_subtask = listbox_subtasks.curselection()
+    
+    if selected_assignment:
+        assignment_id = listbox_assignments.get(selected_assignment[0]).split('|')[0].split(':')[1].strip()
+        change_status(assignment_id, 'assignment', 'Completed')
+        refresh_assignments()
+        refresh_subtasks()
+
+    elif selected_subtask:
+        subtask_id = listbox_subtasks.get(selected_subtask[0]).split('|')[0].split(':')[1].strip()
+        change_status(subtask_id, 'subtask', 'Completed')
+        refresh_subtasks()
+
+    else:
+        messagebox.showwarning("Selection Error", "Please select an assignment or subtask to mark as completed.")
+
+# Function to set a task or assignment as in progress
+def mark_as_in_progress():
+    selected_assignment = listbox_assignments.curselection()
+    selected_subtask = listbox_subtasks.curselection()
+    
+    if selected_assignment:
+        assignment_id = listbox_assignments.get(selected_assignment[0]).split('|')[0].split(':')[1].strip()
+        change_status(assignment_id, 'assignment', 'In Progress')
+        refresh_assignments()
+        refresh_subtasks()
+
+    elif selected_subtask:
+        subtask_id = listbox_subtasks.get(selected_subtask[0]).split('|')[0].split(':')[1].strip()
+        change_status(subtask_id, 'subtask', 'In Progress')
+        refresh_subtasks()
+
+    else:
+        messagebox.showwarning("Selection Error", "Please select an assignment or subtask to mark as in progress.")
 
 # Function to send desktop notifications with snooze and done options
 def send_desktop_notification(title, message, item_id, item_type):
@@ -83,7 +126,7 @@ def send_desktop_notification(title, message, item_id, item_type):
         root.after(60000, lambda: trigger_notification(item_id, item_type))
 
     def done():
-        mark_as_completed(item_id, item_type)
+        change_status(item_id, item_type, 'Completed')
     
     notification.notify(
         title=title,
@@ -129,20 +172,20 @@ def trigger_notification(item_id, item_type):
 def check_for_due_assignments():
     today = datetime.now()
     print(f"Checking for due assignments... Current time: {today}")
-    for row in c.execute("SELECT * FROM assignments WHERE status = 'Not Started'"):
+    for row in c.execute("SELECT * FROM assignments WHERE status != 'Completed'"):
         due_date = datetime.strptime(row[3], "%Y-%m-%d")
         print(f"Checking assignment: {row[2]}, Due Date: {due_date}")
         if due_date <= today + timedelta(days=1):
             trigger_notification(row[0], 'assignment')
 
-    for row in c.execute("SELECT * FROM subtasks WHERE status = 'Not Started'"):
+    for row in c.execute("SELECT * FROM subtasks WHERE status != 'Completed'"):
         due_date = datetime.strptime(row[3], "%Y-%m-%d")
         print(f"Checking subtask: {row[2]}, Due Date: {due_date}")
         if due_date <= today + timedelta(days=1):
             trigger_notification(row[0], 'subtask')
 
-    # Schedule the next check
-    root.after(10000, check_for_due_assignments)  # Check every 10 seconds for testing
+    # Schedule the next check (every hour)
+    root.after(3600000, check_for_due_assignments)  # Check every hour
 
 # GUI Setup
 root = tk.Tk()
@@ -187,9 +230,15 @@ listbox_assignments.pack(pady=5)
 listbox_subtasks = tk.Listbox(root, width=50)
 listbox_subtasks.pack(pady=5)
 
+button_mark_in_progress = tk.Button(root, text="Mark as In Progress", command=mark_as_in_progress)
+button_mark_in_progress.pack(pady=5)
+
+button_mark_completed = tk.Button(root, text="Mark as Completed", command=mark_as_completed)
+button_mark_completed.pack(pady=5)
+
 refresh_assignments()
 
-# Check for due assignments every 10 seconds for testing
-root.after(10000, check_for_due_assignments)
+# Check for due assignments every hour
+root.after(3600000, check_for_due_assignments)
 
 root.mainloop()
