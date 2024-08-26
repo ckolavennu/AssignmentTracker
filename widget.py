@@ -34,7 +34,7 @@ def mark_task(status):
         conn.commit()
         refresh_widget()
     else:
-        tkinter.messagebox.showwarning("Selection Error", "Please select an item to mark.")
+        tk.messagebox.showwarning("Selection Error", "Please select an item to mark.")
 
 # Function to close the widget
 def close_widget():
