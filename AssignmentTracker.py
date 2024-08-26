@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 import sqlite3
-import plyer
 from plyer import notification
 from datetime import datetime, timedelta
 
@@ -67,8 +66,25 @@ def refresh_subtasks(assignment_id):
     for row in c.execute("SELECT * FROM subtasks WHERE assignment_id = ?", (assignment_id,)):
         listbox_subtasks.insert(tk.END, f"ID: {row[0]} | Title: {row[2]} | Due Date: {row[3]} | Status: {row[4]}")
 
-# Function to send desktop notifications
-def send_desktop_notification(title, message):
+# Function to mark a task or assignment as completed
+def mark_as_completed(item_id, item_type):
+    if item_type == 'assignment':
+        c.execute("UPDATE assignments SET status = 'Completed' WHERE id = ?", (item_id,))
+    elif item_type == 'subtask':
+        c.execute("UPDATE subtasks SET status = 'Completed' WHERE id = ?", (item_id,))
+    conn.commit()
+    refresh_assignments()
+    refresh_subtasks(item_id if item_type == 'assignment' else None)
+    messagebox.showinfo("Task Completed", "The task has been marked as completed.")
+
+# Function to send desktop notifications with snooze and done options
+def send_desktop_notification(title, message, item_id, item_type):
+    def snooze():
+        root.after(60000, lambda: trigger_notification(item_id, item_type))
+
+    def done():
+        mark_as_completed(item_id, item_type)
+    
     notification.notify(
         title=title,
         message=message,
@@ -76,22 +92,57 @@ def send_desktop_notification(title, message):
         timeout=10  # Duration of the notification in seconds
     )
 
+    # Creating a temporary window to simulate snooze and done options
+    temp_window = tk.Toplevel(root)
+    temp_window.title("Notification")
+
+    lbl = tk.Label(temp_window, text=message)
+    lbl.pack(pady=10)
+
+    btn_snooze = tk.Button(temp_window, text="Snooze", command=lambda: [snooze(), temp_window.destroy()])
+    btn_snooze.pack(side=tk.LEFT, padx=10)
+
+    btn_done = tk.Button(temp_window, text="Done", command=lambda: [done(), temp_window.destroy()])
+    btn_done.pack(side=tk.RIGHT, padx=10)
+
+# Function to trigger a notification
+def trigger_notification(item_id, item_type):
+    today = datetime.now()
+    if item_type == 'assignment':
+        row = c.execute("SELECT * FROM assignments WHERE id = ?", (item_id,)).fetchone()
+        if row and row[5] != 'Completed':
+            due_date = datetime.strptime(row[3], "%Y-%m-%d")
+            if due_date <= today + timedelta(days=1):
+                title = f"Reminder: {row[2]} is due soon!"
+                message = f"Assignment '{row[2]}' in module '{row[1]}' is due on {row[3]}. Please make sure to complete it on time."
+                send_desktop_notification(title, message, item_id, 'assignment')
+    elif item_type == 'subtask':
+        row = c.execute("SELECT * FROM subtasks WHERE id = ?", (item_id,)).fetchone()
+        if row and row[4] != 'Completed':
+            due_date = datetime.strptime(row[3], "%Y-%m-%d")
+            if due_date <= today + timedelta(days=1):
+                title = f"Reminder: Subtask '{row[2]}' is due soon!"
+                message = f"Subtask '{row[2]}' is due on {row[3]}. Please make sure to complete it on time."
+                send_desktop_notification(title, message, item_id, 'subtask')
+
 # Function to check for due assignments and send reminders
 def check_for_due_assignments():
     today = datetime.now()
+    print(f"Checking for due assignments... Current time: {today}")
     for row in c.execute("SELECT * FROM assignments WHERE status = 'Not Started'"):
         due_date = datetime.strptime(row[3], "%Y-%m-%d")
+        print(f"Checking assignment: {row[2]}, Due Date: {due_date}")
         if due_date <= today + timedelta(days=1):
-            title = f"Reminder: {row[2]} is due soon!"
-            message = f"Assignment '{row[2]}' in module '{row[1]}' is due on {row[3]}. Please make sure to complete it on time."
-            send_desktop_notification(title, message)
+            trigger_notification(row[0], 'assignment')
 
     for row in c.execute("SELECT * FROM subtasks WHERE status = 'Not Started'"):
         due_date = datetime.strptime(row[3], "%Y-%m-%d")
+        print(f"Checking subtask: {row[2]}, Due Date: {due_date}")
         if due_date <= today + timedelta(days=1):
-            title = f"Reminder: Subtask '{row[2]}' is due soon!"
-            message = f"Subtask '{row[2]}' is due on {row[3]}. Please make sure to complete it on time."
-            send_desktop_notification(title, message)
+            trigger_notification(row[0], 'subtask')
+
+    # Schedule the next check
+    root.after(10000, check_for_due_assignments)  # Check every 10 seconds for testing
 
 # GUI Setup
 root = tk.Tk()
@@ -138,7 +189,7 @@ listbox_subtasks.pack(pady=5)
 
 refresh_assignments()
 
-# Check for due assignments every minute
-root.after(60000, check_for_due_assignments)
+# Check for due assignments every 10 seconds for testing
+root.after(10000, check_for_due_assignments)
 
 root.mainloop()
